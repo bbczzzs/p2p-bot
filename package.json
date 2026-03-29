@@ -1,0 +1,18 @@
+{
+  "name": "p2p-telegram-bot",
+  "version": "1.0.0",
+  "description": "P2P.me Telegram wrapper bot - Scan & Pay with USDC via QR",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "node bot.js"
+  },
+  "dependencies": {
+    "telegraf": "^4.16.3",
+    "puppeteer": "^23.0.0",
+    "jimp": "^0.22.12",
+    "jsqr": "^1.4.0",
+    "dotenv": "^16.4.5",
+    "axios": "^1.7.0"
+  }
+}
