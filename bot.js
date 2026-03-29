@@ -12,6 +12,18 @@ if (!process.env.BOT_TOKEN) {
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const ADMIN_ID = parseInt(process.env.ADMIN_ID);
 
+// Safe screenshot — NEVER throws
+async function sendScreenshot(ctx, page, caption) {
+  try {
+    const buf = await page.screenshot({ type: 'png' });
+    if (buf && Buffer.isBuffer(buf) && buf.length > 500) {
+      await ctx.replyWithPhoto({ source: buf }, caption ? { caption } : {});
+    }
+  } catch (e) {
+    console.log('Screenshot skipped:', e.message);
+  }
+}
+
 // ============ KEYBOARDS ============
 
 const mainMenu = Markup.inlineKeyboard([
@@ -30,15 +42,15 @@ const backMenu = Markup.inlineKeyboard([
 
 bot.start((ctx) => {
   ctx.reply(
-    `💳 *USDC Pay Bot*\n\n` +
-    `Pay anyone with USDC via UPI QR\\.\n\n` +
-    `*How it works:*\n` +
+    `💳 USDC Pay Bot\n\n` +
+    `Pay anyone with USDC via UPI QR.\n\n` +
+    `How it works:\n` +
     `1️⃣ Login with your email\n` +
     `2️⃣ Enter amount in INR\n` +
     `3️⃣ Send the vendor's UPI QR\n` +
-    `4️⃣ Payment done\\! ✅\n\n` +
+    `4️⃣ Payment done! ✅\n\n` +
     `Choose an option:`,
-    { parse_mode: 'MarkdownV2', ...mainMenu }
+    mainMenu
   );
 });
 
@@ -46,10 +58,7 @@ bot.start((ctx) => {
 
 bot.action('menu', (ctx) => {
   ctx.answerCbQuery();
-  ctx.editMessageText(
-    `💳 *USDC Pay Bot*\n\nChoose an option:`,
-    { parse_mode: 'MarkdownV2', ...mainMenu }
-  );
+  ctx.editMessageText('💳 USDC Pay Bot\n\nChoose an option:', mainMenu);
 });
 
 // ============ LOGIN ============
@@ -63,7 +72,7 @@ bot.action('login', async (ctx) => {
     return ctx.editMessageText('✅ Already logged in!', mainMenu);
   }
 
-  ctx.editMessageText('🔐 Send me your *email address*:', { parse_mode: 'Markdown' });
+  ctx.editMessageText('🔐 Send me your email address:');
 
   const session = await createSession(userId);
   session.state = 'awaiting_email';
@@ -94,7 +103,7 @@ bot.action('pay', async (ctx) => {
   }
 
   refreshTimeout(userId);
-  ctx.editMessageText('💳 Enter amount in *INR*:', { parse_mode: 'Markdown' });
+  ctx.editMessageText('💳 Enter amount in INR:');
   session.state = 'awaiting_amount';
 });
 
@@ -118,11 +127,8 @@ bot.action('balance', async (ctx) => {
   try {
     const info = await p2p.getDashboardInfo(session.page);
     ctx.editMessageText(
-      `💰 *Balance*\n\n` +
-      `💵 $${info.balance}\n` +
-      `📈 Buy: ₹${info.buyPrice}/USDC\n` +
-      `📉 Sell: ₹${info.sellPrice}/USDC`,
-      { parse_mode: 'Markdown', ...backMenu }
+      `💰 Balance\n\n💵 $${info.balance}\n📈 Buy: ₹${info.buyPrice}/USDC\n📉 Sell: ₹${info.sellPrice}/USDC`,
+      backMenu
     );
   } catch (e) {
     ctx.editMessageText('❌ Failed to fetch.', backMenu);
@@ -149,8 +155,8 @@ bot.action('rates', async (ctx) => {
   try {
     const info = await p2p.getDashboardInfo(session.page);
     ctx.editMessageText(
-      `📊 *Rates*\n\n📈 Buy: ₹${info.buyPrice}/USDC\n📉 Sell: ₹${info.sellPrice}/USDC`,
-      { parse_mode: 'Markdown', ...backMenu }
+      `📊 Rates\n\n📈 Buy: ₹${info.buyPrice}/USDC\n📉 Sell: ₹${info.sellPrice}/USDC`,
+      backMenu
     );
   } catch (e) {
     ctx.editMessageText('❌ Failed to fetch.', backMenu);
@@ -176,19 +182,12 @@ bot.action('wallet', async (ctx) => {
 
   try {
     const walletInfo = await p2p.getWalletInfo(session.page);
-    const screenshot = await p2p.takeScreenshot(session.page);
-
-    if (screenshot) {
-      await ctx.replyWithPhoto({ source: screenshot });
-    }
+    await sendScreenshot(ctx, session.page);
 
     if (walletInfo.address) {
-      ctx.reply(
-        `👛 *Wallet*\n\n📋 Address:\n\`${walletInfo.address}\`\n\n⚠️ Send only USDC (Base network)`,
-        { parse_mode: 'Markdown', ...backMenu }
-      );
+      ctx.reply(`👛 Wallet\n\n📋 Address:\n${walletInfo.address}\n\n⚠️ Send only USDC (Base network)`, backMenu);
     } else {
-      ctx.reply('👛 Wallet loaded. See screenshot above.', backMenu);
+      ctx.reply('👛 Wallet loaded.', backMenu);
     }
   } catch (e) {
     ctx.reply('❌ Failed to load wallet.', backMenu);
@@ -214,19 +213,12 @@ bot.action('deposit', async (ctx) => {
 
   try {
     const depositInfo = await p2p.goToDeposit(session.page);
-    const screenshot = await p2p.takeScreenshot(session.page);
-
-    if (screenshot) {
-      await ctx.replyWithPhoto({ source: screenshot });
-    }
+    await sendScreenshot(ctx, session.page);
 
     if (depositInfo.address) {
-      ctx.reply(
-        `📥 *Deposit USDC*\n\n📋 Address:\n\`${depositInfo.address}\`\n\n⚠️ *Base network only!*`,
-        { parse_mode: 'Markdown', ...backMenu }
-      );
+      ctx.reply(`📥 Deposit USDC\n\n📋 Address:\n${depositInfo.address}\n\n⚠️ Base network only!`, backMenu);
     } else {
-      ctx.reply('📥 Deposit info loaded. See screenshot above.', backMenu);
+      ctx.reply('📥 Deposit info loaded.', backMenu);
     }
   } catch (e) {
     ctx.reply('❌ Failed to load.', backMenu);
@@ -268,11 +260,7 @@ bot.on('text', async (ctx) => {
         session.tempData.email = text;
         ctx.reply(`📧 Code sent to ${text}\n\nEnter the verification code:`);
       } else {
-        // Take debug screenshot
-        const screenshot = await p2p.takeScreenshot(session.page);
-        if (screenshot) {
-          await ctx.replyWithPhoto({ source: screenshot }, { caption: '❌ Failed. Debug screenshot.' });
-        }
+        await sendScreenshot(ctx, session.page, '❌ Failed');
         ctx.reply('❌ Failed. Try again.', backMenu);
         session.state = 'idle';
       }
@@ -293,32 +281,16 @@ bot.on('text', async (ctx) => {
       if (success) {
         session.loggedIn = true;
         session.state = 'idle';
-        // Try screenshot but don't fail if it errors
-        try {
-          const screenshot = await p2p.takeScreenshot(session.page);
-          if (screenshot && screenshot.length > 0) {
-            await ctx.replyWithPhoto({ source: screenshot });
-          }
-        } catch (se) { console.log('Screenshot skipped'); }
+        await sendScreenshot(ctx, session.page);
         ctx.reply('✅ Login successful!', mainMenu);
         console.log(`[${userId}] Logged in`);
       } else {
-        try {
-          const screenshot = await p2p.takeScreenshot(session.page);
-          if (screenshot && screenshot.length > 0) {
-            await ctx.replyWithPhoto({ source: screenshot });
-          }
-        } catch (se) {}
+        await sendScreenshot(ctx, session.page);
         ctx.reply('❌ Invalid code. Try again:');
       }
     } catch (e) {
       console.error(`[${userId}] OTP error:`, e.message);
-      try {
-        const screenshot = await p2p.takeScreenshot(session.page);
-        if (screenshot && screenshot.length > 0) {
-          await ctx.replyWithPhoto({ source: screenshot });
-        }
-      } catch (se) {}
+      await sendScreenshot(ctx, session.page);
       ctx.reply(`❌ OTP failed: ${e.message}`, backMenu);
       session.state = 'idle';
     }
@@ -343,14 +315,11 @@ bot.on('text', async (ctx) => {
         session.state = 'awaiting_confirm';
 
         ctx.reply(
-          `💳 *Order*\n\n💵 ₹${amount}\n🪙 ${conversionInfo.usdc} USDC\n\nConfirm?`,
-          {
-            parse_mode: 'Markdown',
-            ...Markup.inlineKeyboard([
-              [Markup.button.callback('✅ Confirm', 'confirm_order')],
-              [Markup.button.callback('❌ Cancel', 'menu')],
-            ]),
-          }
+          `💳 Order\n\n💵 ₹${amount}\n🪙 ${conversionInfo.usdc} USDC\n\nConfirm?`,
+          Markup.inlineKeyboard([
+            [Markup.button.callback('✅ Confirm', 'confirm_order')],
+            [Markup.button.callback('❌ Cancel', 'menu')],
+          ])
         );
       } else {
         ctx.reply('❌ Failed. Try again.', backMenu);
@@ -382,15 +351,8 @@ bot.action('confirm_order', async (ctx) => {
     const success = await p2p.placeOrder(session.page);
     if (success) {
       session.state = 'awaiting_qr';
-
-      const screenshot = await p2p.takeScreenshot(session.page);
-      if (screenshot) {
-        await ctx.replyWithPhoto({ source: screenshot }, {
-          caption: '✅ Order placed! Send the UPI QR code as a photo.'
-        });
-      } else {
-        ctx.reply('✅ Order placed! Send the UPI QR code as a photo.');
-      }
+      await sendScreenshot(ctx, session.page);
+      ctx.reply('✅ Order placed! Send the UPI QR code as a photo.');
     } else {
       ctx.editMessageText('❌ Failed. Check your USDC balance.', backMenu);
       session.state = 'idle';
@@ -429,14 +391,9 @@ bot.on('photo', async (ctx) => {
       return ctx.reply(`⚠️ No UPI ID found in QR.\nRaw: ${qrData}`);
     }
 
-    ctx.reply(
-      `✅ QR Decoded!\n\n📱 UPI: ${upiInfo.upiId}\n👤 ${upiInfo.name || 'N/A'}\n\n⏳ Processing payment...`
-    );
+    ctx.reply(`✅ QR Decoded!\n\n📱 UPI: ${upiInfo.upiId}\n👤 ${upiInfo.name || 'N/A'}\n\n⏳ Processing payment...`);
 
-    const screenshot = await p2p.takeScreenshot(session.page);
-    if (screenshot) {
-      await ctx.replyWithPhoto({ source: screenshot });
-    }
+    await sendScreenshot(ctx, session.page);
 
     session.state = 'payment_processing';
     session.tempData.upiId = upiInfo.upiId;
@@ -470,8 +427,7 @@ async function pollPaymentStatus(ctx, userId) {
         clearInterval(interval);
         session.state = 'idle';
         session.tempData = {};
-        const screenshot = await p2p.takeScreenshot(session.page);
-        if (screenshot) await ctx.replyWithPhoto({ source: screenshot });
+        await sendScreenshot(ctx, session.page);
         ctx.reply('✅ Payment successful! 🎉', mainMenu);
         return;
       }
@@ -480,8 +436,7 @@ async function pollPaymentStatus(ctx, userId) {
         clearInterval(interval);
         session.state = 'idle';
         session.tempData = {};
-        const screenshot = await p2p.takeScreenshot(session.page);
-        if (screenshot) await ctx.replyWithPhoto({ source: screenshot });
+        await sendScreenshot(ctx, session.page);
         ctx.reply('❌ Payment failed/expired.', mainMenu);
         return;
       }
@@ -492,20 +447,17 @@ async function pollPaymentStatus(ctx, userId) {
     if (pollCount >= MAX_POLLS) {
       clearInterval(interval);
       if (session) { session.state = 'idle'; session.tempData = {}; }
-      ctx.reply('⏰ Timed out. Use /screenshot to check.', mainMenu);
+      ctx.reply('⏰ Timed out.', mainMenu);
     }
   }, 10000);
 }
 
-// ============ DEBUG COMMANDS ============
+// ============ DEBUG ============
 
 bot.command('screenshot', async (ctx) => {
   const session = await getSession(ctx.from.id);
   if (!session) return ctx.reply('❌ No session.');
-  try {
-    const screenshot = await p2p.takeScreenshot(session.page);
-    if (screenshot) await ctx.replyWithPhoto({ source: screenshot }, { caption: session.page.url() });
-  } catch (e) { ctx.reply('❌ ' + e.message); }
+  await sendScreenshot(ctx, session.page, session.page.url());
 });
 
 bot.command('status', async (ctx) => {
@@ -525,20 +477,18 @@ bot.command('stats', (ctx) => {
 
 bot.help((ctx) => {
   ctx.reply(
-    `💳 *USDC Pay Bot*\n\n` +
+    `💳 USDC Pay Bot\n\n` +
     `/start - Main menu\n` +
     `/help - Help\n` +
     `/screenshot - Debug view\n` +
-    `/status - Session info`,
-    { parse_mode: 'Markdown' }
+    `/status - Session info`
   );
 });
 
 // ============ ERROR & LAUNCH ============
 
 bot.catch((err, ctx) => {
-  console.error('Bot error:', err);
-  ctx.reply('❌ Error. Try /start.');
+  console.error('Bot error:', err.message);
 });
 
 bot.launch().then(() => console.log('🤖 Bot running!'));
