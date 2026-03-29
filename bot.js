@@ -4,6 +4,14 @@ const { createSession, getSession, closeSession, refreshTimeout, getActiveCount 
 const p2p = require('./p2p');
 const { decodeQR, extractUPIFromQR, downloadTelegramFile } = require('./qr');
 
+// Validate required env vars
+if (!process.env.BOT_TOKEN) {
+  console.error('ERROR: BOT_TOKEN environment variable is not set!');
+  console.error('Available env vars:', Object.keys(process.env).filter(k => !k.startsWith('npm')).join(', '));
+  process.exit(1);
+}
+
+console.log('BOT_TOKEN found, starting bot...');
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const ADMIN_ID = parseInt(process.env.ADMIN_ID);
 
@@ -425,7 +433,7 @@ bot.on('photo', async (ctx) => {
   }
 
   if (session.state !== 'awaiting_qr') {
-    return ctx.reply('❌ No pending order. Use /pay first.');
+    return ctx.reply('❌ No pending order. Use Scan & Pay first.');
   }
 
   refreshTimeout(userId);
@@ -457,30 +465,140 @@ bot.on('photo', async (ctx) => {
     }
 
     ctx.reply(
-      `✅ *QR Code Decoded\\!*\n\n` +
-      `📱 UPI ID: \`${upiInfo.upiId}\`\n` +
+      `✅ QR Code Decoded!\n\n` +
+      `📱 UPI ID: ${upiInfo.upiId}\n` +
       `👤 Name: ${upiInfo.name || 'N/A'}\n\n` +
-      `⏳ Processing payment on P2P\\.me\\.\\.\\.`,
-      { parse_mode: 'MarkdownV2' }
+      `⏳ Submitting to P2P.me...`
     );
 
-    // Take screenshot of current P2P.me state
+    // TODO: Enter UPI details on P2P.me page
+    // This part needs to be refined based on what P2P.me shows after "Place Order"
+    // For now, take a screenshot to show the current state
     const screenshot = await p2p.takeScreenshot(session.page);
     if (screenshot) {
       await ctx.replyWithPhoto({ source: screenshot }, {
-        caption: `📸 P2P.me is processing your payment to ${upiInfo.upiId}`
+        caption: `📸 Current P2P.me state after QR submission`
       });
     }
 
-    session.state = 'idle';
-    session.tempData = {};
-
-    ctx.reply('✅ Payment submitted! Check P2P.me for status.', mainMenu);
+    // Start polling for payment status
+    session.state = 'payment_processing';
+    session.tempData.upiId = upiInfo.upiId;
+    pollPaymentStatus(ctx, userId);
 
   } catch (e) {
     console.error(`[${userId}] QR processing failed:`, e.message);
     ctx.reply('❌ Failed to process QR. Try again.', backMenu);
   }
+});
+
+// ============ PAYMENT STATUS POLLING ============
+
+async function pollPaymentStatus(ctx, userId) {
+  const MAX_POLLS = 30; // 30 * 10s = 5 minutes
+  let pollCount = 0;
+
+  const interval = setInterval(async () => {
+    pollCount++;
+    const session = await getSession(userId);
+
+    if (!session || session.state !== 'payment_processing') {
+      clearInterval(interval);
+      return;
+    }
+
+    try {
+      const pageText = await p2p.getPageText(session.page);
+      const lowerText = pageText.toLowerCase();
+
+      // Check for success indicators
+      if (lowerText.includes('success') || lowerText.includes('completed') || lowerText.includes('paid')) {
+        clearInterval(interval);
+        session.state = 'idle';
+        session.tempData = {};
+
+        const screenshot = await p2p.takeScreenshot(session.page);
+        if (screenshot) {
+          await ctx.replyWithPhoto({ source: screenshot }, {
+            caption: '✅ Payment Successful!'
+          });
+        }
+        ctx.reply('✅ Payment completed successfully! 🎉', mainMenu);
+        return;
+      }
+
+      // Check for failure indicators
+      if (lowerText.includes('failed') || lowerText.includes('expired') || lowerText.includes('cancelled')) {
+        clearInterval(interval);
+        session.state = 'idle';
+        session.tempData = {};
+
+        const screenshot = await p2p.takeScreenshot(session.page);
+        if (screenshot) {
+          await ctx.replyWithPhoto({ source: screenshot }, {
+            caption: '❌ Payment Failed/Expired'
+          });
+        }
+        ctx.reply('❌ Payment failed or expired. Try again.', mainMenu);
+        return;
+      }
+    } catch (e) {
+      console.error(`[${userId}] Poll error:`, e.message);
+    }
+
+    // Timeout after 5 minutes
+    if (pollCount >= MAX_POLLS) {
+      clearInterval(interval);
+      if (session) {
+        session.state = 'idle';
+        session.tempData = {};
+      }
+      ctx.reply('⏰ Payment status check timed out. Use /screenshot to check manually.', mainMenu);
+    }
+  }, 10000); // Check every 10 seconds
+}
+
+// ============ SCREENSHOT COMMAND (DEBUG) ============
+
+bot.command('screenshot', async (ctx) => {
+  const userId = ctx.from.id;
+  const session = await getSession(userId);
+
+  if (!session) {
+    return ctx.reply('❌ No active session. Use /start first.');
+  }
+
+  try {
+    const screenshot = await p2p.takeScreenshot(session.page);
+    if (screenshot) {
+      const pageUrl = session.page.url();
+      await ctx.replyWithPhoto({ source: screenshot }, {
+        caption: `📸 Current page: ${pageUrl}`
+      });
+    } else {
+      ctx.reply('❌ Failed to take screenshot.');
+    }
+  } catch (e) {
+    ctx.reply('❌ Screenshot failed: ' + e.message);
+  }
+});
+
+// ============ STATUS COMMAND ============
+
+bot.command('status', async (ctx) => {
+  const userId = ctx.from.id;
+  const session = await getSession(userId);
+
+  if (!session) {
+    return ctx.reply('❌ No active session.');
+  }
+
+  ctx.reply(
+    `📋 Session Status\n\n` +
+    `Logged in: ${session.loggedIn ? '✅' : '❌'}\n` +
+    `State: ${session.state}\n` +
+    `Current page: ${session.page.url()}`
+  );
 });
 
 // ============ ADMIN COMMANDS ============
