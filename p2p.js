@@ -9,13 +9,10 @@ async function navigateToLogin(page) {
 
   // Select INR currency
   try {
-    // Click currency dropdown
     const currencyBtn = await page.$('button[role="combobox"]');
     if (currencyBtn) {
       await currencyBtn.click();
       await sleep(1000);
-
-      // Look for INR option and click it
       const options = await page.$$('[role="option"]');
       for (const option of options) {
         const text = await page.evaluate(el => el.textContent, option);
@@ -29,17 +26,14 @@ async function navigateToLogin(page) {
   } catch (e) {
     console.log('Currency selection:', e.message);
   }
-
   return true;
 }
 
 /**
- * Click the Login button to open the sign-in modal
+ * Click the Login button
  */
 async function clickLogin(page) {
   await sleep(1000);
-
-  // Find and click the Login button
   const buttons = await page.$$('button');
   for (const button of buttons) {
     const text = await page.evaluate(el => el.textContent.trim(), button);
@@ -53,82 +47,64 @@ async function clickLogin(page) {
 }
 
 /**
- * Enter email address in the login modal
+ * Enter email address
  */
 async function enterEmail(page, email) {
   try {
     await sleep(2000);
 
-    // Strategy 1: Look for email input directly
     let emailInput = await page.$('input[type="email"]');
-    
-    // Strategy 2: Look for input with email placeholder
     if (!emailInput) {
       const inputs = await page.$$('input');
       for (const input of inputs) {
         const placeholder = await page.evaluate(el => (el.placeholder || '').toLowerCase(), input);
-        const type = await page.evaluate(el => el.type || '', input);
-        if (placeholder.includes('email') || placeholder.includes('mail') || type === 'email') {
+        if (placeholder.includes('email') || placeholder.includes('mail')) {
           emailInput = input;
           break;
         }
       }
     }
-
-    // Strategy 3: Check inside iframes (Thirdweb sometimes uses iframes)
     if (!emailInput) {
       const frames = page.frames();
       for (const frame of frames) {
         try {
           emailInput = await frame.$('input[type="email"], input[placeholder*="email" i]');
-          if (emailInput) {
-            console.log('Found email input inside iframe');
-            break;
-          }
+          if (emailInput) break;
         } catch (e) {}
       }
     }
 
     if (!emailInput) {
-      console.error('No email input found on page');
+      console.error('No email input found');
       return false;
     }
 
-    // Clear and type email
     await emailInput.click({ clickCount: 3 });
     await sleep(200);
     await emailInput.type(email, { delay: 80 });
     await sleep(500);
 
-    // Try submitting: look for arrow button, submit button, or press Enter
-    // Strategy 1: Find a nearby submit/arrow button
-    const allButtons = await page.$$('button, [role="button"], svg');
+    // Find submit button near email input
+    const allButtons = await page.$$('button, [role="button"]');
     let submitted = false;
-
     for (const btn of allButtons) {
       try {
         const box = await btn.boundingBox();
         const inputBox = await emailInput.boundingBox();
         if (!box || !inputBox) continue;
-        
-        // Button should be on the same row as email input (within 30px vertically)
         if (Math.abs(box.y - inputBox.y) < 30 && box.x > inputBox.x) {
           await btn.click();
           submitted = true;
-          console.log('Clicked submit button next to email');
           break;
         }
       } catch (e) {}
     }
 
-    // Strategy 2: Press Enter
     if (!submitted) {
       await page.keyboard.press('Enter');
-      console.log('Pressed Enter to submit email');
     }
 
     await sleep(3000);
-    console.log('Email submitted, current URL:', page.url());
     return true;
   } catch (e) {
     console.error('Enter email error:', e.message);
@@ -137,33 +113,26 @@ async function enterEmail(page, email) {
 }
 
 /**
- * Enter OTP code - tries multiple strategies
+ * Enter OTP code
  */
 async function enterOTP(page, otp) {
   try {
     await sleep(2000);
     console.log('Entering OTP:', otp);
-    console.log('Current URL:', page.url());
 
-    // Get all visible inputs
     const findInputs = async (context) => {
       return await context.$$('input:not([type="hidden"]):not([type="email"])');
     };
 
     let inputs = await findInputs(page);
-    let targetContext = page;
 
-    // Check iframes if no inputs found
     if (inputs.length === 0) {
-      console.log('No inputs in main page, checking iframes...');
       const frames = page.frames();
       for (const frame of frames) {
         try {
           const frameInputs = await findInputs(frame);
           if (frameInputs.length > 0) {
             inputs = frameInputs;
-            targetContext = frame;
-            console.log(`Found ${inputs.length} inputs in iframe`);
             break;
           }
         } catch (e) {}
@@ -173,8 +142,6 @@ async function enterOTP(page, otp) {
     console.log(`Found ${inputs.length} input fields`);
 
     if (inputs.length === 0) {
-      // Last resort: just type the OTP (some fields auto-focus)
-      console.log('No inputs found, trying direct keyboard type');
       await page.keyboard.type(otp, { delay: 100 });
       await sleep(3000);
       const url = page.url();
@@ -184,21 +151,13 @@ async function enterOTP(page, otp) {
     const digits = otp.toString().split('');
 
     if (inputs.length >= 4) {
-      // Multiple individual digit inputs (common OTP pattern)
-      console.log('Using individual digit input strategy');
-      
-      // Click first input to focus
       await inputs[0].click();
       await sleep(300);
-
-      // Try typing all digits at once (many OTP fields auto-advance)
       for (const digit of digits) {
         await page.keyboard.type(digit, { delay: 100 });
         await sleep(150);
       }
     } else {
-      // Single or few inputs — type into the first one
-      console.log('Using single input strategy');
       await inputs[0].click({ clickCount: 3 });
       await sleep(200);
       await inputs[0].type(otp, { delay: 80 });
@@ -206,8 +165,8 @@ async function enterOTP(page, otp) {
 
     await sleep(2000);
 
-    // Look for verify/confirm/submit button
-    const buttons = await (targetContext === page ? page : page).$$('button');
+    // Click verify button
+    const buttons = await page.$$('button');
     for (const btn of buttons) {
       try {
         const text = await page.evaluate(el => el.textContent.trim().toLowerCase(), btn);
@@ -215,13 +174,11 @@ async function enterOTP(page, otp) {
           const rect = el.getBoundingClientRect();
           return rect.width > 0 && rect.height > 0;
         }, btn);
-        
         if (isVisible && (
           text.includes('verify') || text.includes('confirm') || 
           text.includes('submit') || text.includes('continue') ||
           text.includes('log in') || text.includes('sign in')
         )) {
-          console.log('Clicking verify button:', text);
           await btn.click();
           await sleep(4000);
           break;
@@ -229,12 +186,10 @@ async function enterOTP(page, otp) {
       } catch (e) {}
     }
 
-    // Wait a bit more and check URL
     await sleep(3000);
     const finalUrl = page.url();
     console.log('After OTP, URL:', finalUrl);
     
-    // Also check page content for success indicators
     const pageText = await page.evaluate(() => document.body.innerText).catch(() => '');
     const isSuccess = !finalUrl.includes('/login') || 
                       pageText.includes('Balance') || 
@@ -250,45 +205,142 @@ async function enterOTP(page, otp) {
 }
 
 /**
- * Check if currently logged in
+ * Go to dashboard
  */
-async function isLoggedIn(page) {
-  try {
-    const url = page.url();
-    return !url.includes('/login');
-  } catch (e) {
-    return false;
-  }
+async function goHome(page) {
+  await page.goto(`${P2P_URL}/`, { waitUntil: 'networkidle2', timeout: 15000 });
+  await sleep(2000);
 }
 
 /**
- * Get dashboard info (balance, prices)
+ * Get dashboard info
  */
 async function getDashboardInfo(page) {
   try {
-    await page.goto(`${P2P_URL}/`, { waitUntil: 'networkidle2', timeout: 15000 });
-    await sleep(2000);
-
+    await goHome(page);
     const info = await page.evaluate(() => {
       const body = document.body.innerText;
-
-      // Extract sell price
       const sellPriceMatch = body.match(/Sell Price\s*₹([\d.]+)/);
       const buyPriceMatch = body.match(/Buy Price\s*₹([\d.]+)/);
       const balanceMatch = body.match(/\$([\d.]+)/);
-
       return {
         sellPrice: sellPriceMatch ? sellPriceMatch[1] : 'N/A',
         buyPrice: buyPriceMatch ? buyPriceMatch[1] : 'N/A',
         balance: balanceMatch ? balanceMatch[1] : '0.00',
       };
     });
+    return info;
+  } catch (e) {
+    console.error('Dashboard error:', e.message);
+    return { sellPrice: 'N/A', buyPrice: 'N/A', balance: '0.00' };
+  }
+}
+
+/**
+ * Open wallet modal by clicking "Wallet" button on dashboard
+ * Wallet is a Thirdweb modal, not a separate page
+ */
+async function getWalletInfo(page) {
+  try {
+    await goHome(page);
+
+    // Find and click Wallet button (it has icon + text "Wallet")
+    const clicked = await clickDashboardButton(page, 'Wallet');
+    if (!clicked) {
+      console.log('Wallet button not found');
+      return { address: null, pageText: '' };
+    }
+
+    await sleep(3000);
+
+    // Extract wallet info from the modal
+    const info = await page.evaluate(() => {
+      const body = document.body.innerText;
+      const addressMatch = body.match(/0x[a-fA-F0-9]{40}/);
+      return {
+        address: addressMatch ? addressMatch[0] : null,
+        pageText: body.substring(0, 800),
+      };
+    });
 
     return info;
   } catch (e) {
-    console.error('Dashboard info error:', e.message);
-    return { sellPrice: 'N/A', buyPrice: 'N/A', balance: '0.00' };
+    console.error('Wallet error:', e.message);
+    return { address: null, pageText: '' };
   }
+}
+
+/**
+ * Open deposit sheet by clicking "Deposit" button, then "Deposit Base USDC"
+ */
+async function goToDeposit(page) {
+  try {
+    await goHome(page);
+
+    // Click "Deposit" button on dashboard
+    const clicked = await clickDashboardButton(page, 'Deposit');
+    if (!clicked) {
+      console.log('Deposit button not found');
+      return { address: null, pageText: '' };
+    }
+
+    await sleep(2000);
+
+    // Now click "Deposit Base USDC" in the bottom sheet
+    const allElements = await page.$$('div, button, a');
+    for (const el of allElements) {
+      try {
+        const text = await page.evaluate(e => e.textContent.trim(), el);
+        if (text.includes('Deposit Base USDC')) {
+          await el.click();
+          await sleep(3000);
+          break;
+        }
+      } catch (e) {}
+    }
+
+    // Extract wallet address from deposit page
+    const info = await page.evaluate(() => {
+      const body = document.body.innerText;
+      const addressMatch = body.match(/0x[a-fA-F0-9]{40}/);
+      return {
+        address: addressMatch ? addressMatch[0] : null,
+        pageText: body.substring(0, 800),
+      };
+    });
+
+    return info;
+  } catch (e) {
+    console.error('Deposit error:', e.message);
+    return { address: null, pageText: '' };
+  }
+}
+
+/**
+ * Click a button on the dashboard by its label text
+ * Dashboard buttons have icon + text like "Wallet", "Deposit", "Withdraw", "Support"
+ */
+async function clickDashboardButton(page, label) {
+  // Try finding by text content
+  const allElements = await page.$$('button, div, a, span');
+  for (const el of allElements) {
+    try {
+      const text = await page.evaluate(e => e.textContent.trim(), el);
+      const isVisible = await page.evaluate(e => {
+        const rect = e.getBoundingClientRect();
+        return rect.width > 20 && rect.height > 20 && rect.width < 200;
+      }, el);
+      
+      if (text === label && isVisible) {
+        await el.click();
+        console.log(`Clicked dashboard button: ${label}`);
+        return true;
+      }
+    } catch (e) {}
+  }
+  
+  console.log(`Dashboard button "${label}" not found`);
+  return false;
 }
 
 /**
@@ -298,55 +350,41 @@ async function goToScanAndPay(page) {
   try {
     await page.goto(`${P2P_URL}/pay`, { waitUntil: 'networkidle2', timeout: 15000 });
     await sleep(2000);
-
-    // Check if we're on the pay page
     const text = await page.evaluate(() => document.body.innerText);
-    return text.includes('Scan & Pay') || text.includes('INR');
+    return text.includes('Scan & Pay') || text.includes('INR') || text.includes('Place Order');
   } catch (e) {
-    console.error('Navigate to pay error:', e.message);
+    console.error('Go to pay error:', e.message);
     return false;
   }
 }
 
 /**
- * Enter amount using the on-screen keypad
+ * Enter amount using keypad buttons
  */
 async function enterAmount(page, amount) {
   try {
-    // First clear any existing amount
+    // Clear first
     const clearBtn = await findButtonByText(page, 'Clear');
     if (clearBtn) {
       await clearBtn.click();
       await sleep(300);
     }
 
-    // Type each digit by clicking keypad buttons
     const digits = amount.toString().split('');
     for (const digit of digits) {
-      if (digit === '.') {
-        const dotBtn = await findButtonByText(page, '.');
-        if (dotBtn) {
-          await dotBtn.click();
-          await sleep(200);
-        }
-      } else {
-        const numBtn = await findButtonByText(page, digit);
-        if (numBtn) {
-          await numBtn.click();
-          await sleep(200);
-        }
+      const btn = await findButtonByText(page, digit === '.' ? '.' : digit);
+      if (btn) {
+        await btn.click();
+        await sleep(200);
       }
     }
 
     await sleep(500);
 
-    // Get the converted USDC amount from the page
     const conversionInfo = await page.evaluate(() => {
       const body = document.body.innerText;
       const usdcMatch = body.match(/([\d.]+)\s*USDC/);
-      return {
-        usdc: usdcMatch ? usdcMatch[1] : 'N/A',
-      };
+      return { usdc: usdcMatch ? usdcMatch[1] : 'N/A' };
     });
 
     return conversionInfo;
@@ -357,7 +395,7 @@ async function enterAmount(page, amount) {
 }
 
 /**
- * Click "Place Order" button
+ * Click Place Order
  */
 async function placeOrder(page) {
   try {
@@ -375,12 +413,11 @@ async function placeOrder(page) {
 }
 
 /**
- * Take a screenshot and return the buffer
+ * Take screenshot
  */
 async function takeScreenshot(page) {
   try {
-    const screenshot = await page.screenshot({ type: 'png' });
-    return screenshot;
+    return await page.screenshot({ type: 'png' });
   } catch (e) {
     console.error('Screenshot error:', e.message);
     return null;
@@ -388,7 +425,7 @@ async function takeScreenshot(page) {
 }
 
 /**
- * Get current page status/text
+ * Get page text
  */
 async function getPageText(page) {
   try {
@@ -398,15 +435,13 @@ async function getPageText(page) {
   }
 }
 
-// ============ Helper Functions ============
+// ============ Helpers ============
 
 async function findButtonByText(page, text) {
   const buttons = await page.$$('button, div[role="button"]');
   for (const btn of buttons) {
     const btnText = await page.evaluate(el => el.textContent.trim(), btn);
-    if (btnText === text) {
-      return btn;
-    }
+    if (btnText === text) return btn;
   }
   return null;
 }
@@ -415,78 +450,11 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/**
- * Navigate to wallet page and get wallet address
- */
-async function getWalletInfo(page) {
-  try {
-    // Click on Wallet button from dashboard
-    await page.goto(`${P2P_URL}/`, { waitUntil: 'networkidle2', timeout: 15000 });
-    await sleep(2000);
-
-    // Look for Wallet button and click it
-    const walletBtn = await findButtonByText(page, 'Wallet');
-    if (walletBtn) {
-      await walletBtn.click();
-      await sleep(3000);
-    }
-
-    // Extract wallet info from page
-    const info = await page.evaluate(() => {
-      const body = document.body.innerText;
-      // Look for wallet address pattern (0x...)
-      const addressMatch = body.match(/0x[a-fA-F0-9]{40}/);
-      return {
-        address: addressMatch ? addressMatch[0] : null,
-        pageText: body.substring(0, 500),
-      };
-    });
-
-    return info;
-  } catch (e) {
-    console.error('Wallet info error:', e.message);
-    return { address: null, pageText: '' };
-  }
-}
-
-/**
- * Navigate to deposit page
- */
-async function goToDeposit(page) {
-  try {
-    await page.goto(`${P2P_URL}/`, { waitUntil: 'networkidle2', timeout: 15000 });
-    await sleep(2000);
-
-    // Click Deposit button
-    const depositBtn = await findButtonByText(page, 'Deposit');
-    if (depositBtn) {
-      await depositBtn.click();
-      await sleep(3000);
-    }
-
-    // Get deposit info and screenshot
-    const info = await page.evaluate(() => {
-      const body = document.body.innerText;
-      const addressMatch = body.match(/0x[a-fA-F0-9]{40}/);
-      return {
-        address: addressMatch ? addressMatch[0] : null,
-        pageText: body.substring(0, 500),
-      };
-    });
-
-    return info;
-  } catch (e) {
-    console.error('Deposit page error:', e.message);
-    return { address: null, pageText: '' };
-  }
-}
-
 module.exports = {
   navigateToLogin,
   clickLogin,
   enterEmail,
   enterOTP,
-  isLoggedIn,
   getDashboardInfo,
   goToScanAndPay,
   enterAmount,
@@ -495,5 +463,6 @@ module.exports = {
   getPageText,
   getWalletInfo,
   goToDeposit,
+  goHome,
   sleep,
 };
