@@ -309,7 +309,14 @@ bot.on('text', async (ctx) => {
       }
     } catch (e) {
       console.error(`[${userId}] OTP error:`, e.message);
-      ctx.reply('❌ Error. Try /start again.', backMenu);
+      // Send debug screenshot even on error
+      try {
+        const screenshot = await p2p.takeScreenshot(session.page);
+        if (screenshot) {
+          await ctx.replyWithPhoto({ source: screenshot }, { caption: `❌ Error: ${e.message}` });
+        }
+      } catch (se) {}
+      ctx.reply(`❌ OTP failed: ${e.message}\n\nTry /start again.`, backMenu);
       session.state = 'idle';
     }
   }

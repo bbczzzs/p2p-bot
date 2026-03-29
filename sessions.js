@@ -26,7 +26,8 @@ async function createSession(userId) {
   await closeSession(userId);
 
   const browser = await puppeteer.launch({
-    headless: process.env.HEADLESS === 'true' ? 'new' : false,
+    headless: 'new',
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -35,9 +36,6 @@ async function createSession(userId) {
       '--single-process',
       '--no-zygote',
       '--disable-extensions',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
     ],
   });
 
