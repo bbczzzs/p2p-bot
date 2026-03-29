@@ -290,33 +290,36 @@ bot.on('text', async (ctx) => {
     try {
       const success = await p2p.enterOTP(session.page, text);
 
-      // Take screenshot to see current state regardless
-      const screenshot = await p2p.takeScreenshot(session.page);
-
       if (success) {
         session.loggedIn = true;
         session.state = 'idle';
-        if (screenshot) {
-          await ctx.replyWithPhoto({ source: screenshot }, { caption: '✅ Logged in!' });
-        }
+        // Try screenshot but don't fail if it errors
+        try {
+          const screenshot = await p2p.takeScreenshot(session.page);
+          if (screenshot && screenshot.length > 0) {
+            await ctx.replyWithPhoto({ source: screenshot });
+          }
+        } catch (se) { console.log('Screenshot skipped'); }
         ctx.reply('✅ Login successful!', mainMenu);
         console.log(`[${userId}] Logged in`);
       } else {
-        if (screenshot) {
-          await ctx.replyWithPhoto({ source: screenshot }, { caption: '❌ Verification failed. Debug screenshot.' });
-        }
+        try {
+          const screenshot = await p2p.takeScreenshot(session.page);
+          if (screenshot && screenshot.length > 0) {
+            await ctx.replyWithPhoto({ source: screenshot });
+          }
+        } catch (se) {}
         ctx.reply('❌ Invalid code. Try again:');
       }
     } catch (e) {
       console.error(`[${userId}] OTP error:`, e.message);
-      // Send debug screenshot even on error
       try {
         const screenshot = await p2p.takeScreenshot(session.page);
-        if (screenshot) {
-          await ctx.replyWithPhoto({ source: screenshot }, { caption: `❌ Error: ${e.message}` });
+        if (screenshot && screenshot.length > 0) {
+          await ctx.replyWithPhoto({ source: screenshot });
         }
       } catch (se) {}
-      ctx.reply(`❌ OTP failed: ${e.message}\n\nTry /start again.`, backMenu);
+      ctx.reply(`❌ OTP failed: ${e.message}`, backMenu);
       session.state = 'idle';
     }
   }
